@@ -14,18 +14,27 @@ type Base struct {
 	usage string
 }
 
-func (c *Base) Name() string {
-	return c.name
+// NewBase 创建命令基类
+func NewBase(name string, usage string, aliases ...string) Base {
+	return Base{
+		name:    name,
+		aliases: aliases,
+		usage:   usage,
+	}
 }
 
-func (c *Base) Aliases() []string {
-	return c.aliases
+func (b *Base) Name() string {
+	return b.name
 }
 
-func (c *Base) Usage() string {
-	return c.usage
+func (b *Base) Aliases() []string {
+	return b.aliases
 }
 
-func (c *Base) SubCommands() (commands []app.Command) {
+func (b *Base) Usage() string {
+	return b.usage
+}
+
+func (b *Base) SubCommands() (commands []app.Command) {
 	return
 }

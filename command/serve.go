@@ -1,36 +1,27 @@
 package command
 
 import (
+	`errors`
 	`sync`
 
-	`github.com/storezhang/glog`
 	`github.com/storezhang/gox/field`
 	`github.com/storezhang/pangu/app`
 )
 
 var _ app.Command = (*Serve)(nil)
 
-type (
-	// serve 保持和pangu.Serve接口一致，纯粹是方便外部调用而设
-	serve interface {
-		// Run 运行服务器
-		Run() (err error)
-		// Name 服务器名称
-		Name() string
-	}
+// Serve 描述一个提供服务的命令
+type Serve struct {
+	Base
 
-	// Serve 描述一个提供服务的命令
-	Serve struct {
-		Base
-
-		migration migration
-		serves    []serve
-		logger    glog.Logger
-	}
-)
+	beforeExecutors []app.Executor
+	afterExecutors  []app.Executor
+	serves          []app.Serve
+	logger          app.Logger
+}
 
 // NewServe 创建服务命令
-func NewServe(logger *glog.ZapLogger) *Serve {
+func NewServe(logger app.Logger) *Serve {
 	return &Serve{
 		Base: Base{
 			name:    "serve",
@@ -38,33 +29,69 @@ func NewServe(logger *glog.ZapLogger) *Serve {
 			usage:   "启动服务",
 		},
 
-		serves: make([]serve, 0, 1),
-		logger: logger,
+		beforeExecutors: make([]app.Executor, 0, 0),
+		afterExecutors:  make([]app.Executor, 0, 0),
+		serves:          make([]app.Serve, 0, 1),
+		logger:          logger,
 	}
 }
 
-func (s *Serve) Adds(serves ...serve) {
+func (s *Serve) Adds(components ...interface{}) (err error) {
+	for _, component := range components {
+		switch component.(type) {
+		case app.Serve:
+			s.AddServes(component.(app.Serve))
+		case app.Executor:
+			s.AddExecutors(component.(app.Executor))
+		default:
+			err = errors.New("不支持的类型")
+		}
+
+		if nil != err {
+			break
+		}
+	}
+
+	return
+}
+
+func (s *Serve) AddServes(serves ...app.Serve) {
 	s.serves = append(s.serves, serves...)
 }
 
-func (s *Serve) SetMigration(migration migration) {
-	s.migration = migration
+func (s *Serve) AddExecutors(executors ...app.Executor) {
+	for _, executor := range executors {
+		switch executor.Type() {
+		case app.ExecutorTypeBeforeServe:
+			s.beforeExecutors = append(s.beforeExecutors, executor)
+		case app.ExecutorTypeAfterServe:
+			s.afterExecutors = append(s.afterExecutors, executor)
+		}
+	}
 }
 
 func (s *Serve) Run(ctx *app.Context) (err error) {
-	if err = s.migration.Migrate(); nil != err {
-		return
+	// 执行生命周期方法
+	if 0 != len(s.beforeExecutors) {
+		if err = app.RunExecutors(s.beforeExecutors...); nil != err {
+			return
+		}
 	}
 
 	serveCount := len(s.serves)
-	if 0 != len(s.serves) {
+	if 0 != serveCount {
 		s.logger.Info("启动服务开始", field.Int("count", serveCount))
-
 		if err = s.runServes(ctx); nil != err {
 			return
 		}
-
 		s.logger.Info("启动服务成功", field.Int("count", serveCount))
+	}
+
+	// 执行生命周期方法
+	if 0 != len(s.afterExecutors) {
+		if err = app.RunExecutors(s.afterExecutors...); nil != err {
+			return
+		}
 	}
 
 	return
